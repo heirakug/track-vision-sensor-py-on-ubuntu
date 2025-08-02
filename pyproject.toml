@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "track-vision"
+version = "0.1.0"
+description = "Track Vision Project"
+authors = ["User <user@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+python-osc = "^1.9.3"
+mediapipe = "^0.10.0"
+opencv-python = "^4.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
