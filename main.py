@@ -6,6 +6,10 @@ import argparse
 import os
 import traceback
 import logging
+from dotenv import load_dotenv
+
+# .envファイルを読み込み
+load_dotenv()
 
 class MultiModalTracker:
     def __init__(self, enable_hands=True, enable_face=False, enable_pose=False):
