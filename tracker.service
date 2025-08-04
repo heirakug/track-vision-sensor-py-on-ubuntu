@@ -1,0 +1,26 @@
+[Unit]
+Description=MultiModal Tracker Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/track-vision/sensor
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/pi/track-vision/sensor/run_tracker.sh --all
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/tracker.log
+StandardError=append:/var/log/tracker.log
+
+# 環境変数ファイル（オプション）
+EnvironmentFile=-/home/pi/track-vision/sensor/.env
+
+# セキュリティ設定
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

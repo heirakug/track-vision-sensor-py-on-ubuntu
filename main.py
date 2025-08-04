@@ -3,9 +3,17 @@ import cv2
 from pythonosc.udp_client import SimpleUDPClient
 import time
 import argparse
+import os
+import traceback
+import logging
 
 class MultiModalTracker:
     def __init__(self, enable_hands=True, enable_face=False, enable_pose=False):
+        # ログ設定
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
         # 機能の有効/無効設定
         self.enable_hands = enable_hands
         self.enable_face = enable_face
@@ -53,13 +61,25 @@ class MultiModalTracker:
             print("✓ Pose tracking enabled")
         
         # OSC設定
-        self.osc_client = SimpleUDPClient("127.0.0.1", 8000)
-        self.visual_client = SimpleUDPClient("127.0.0.1", 8003)
+        osc_router_ip = os.getenv("OSC_ROUTER_IP", "127.0.0.1")
+        osc_router_port = int(os.getenv("OSC_ROUTER_PORT", "8000"))
+        visual_app_ip = os.getenv("VISUAL_APP_IP", "127.0.0.1")
+        visual_app_port = int(os.getenv("VISUAL_APP_PORT", "8003"))
+        
+        self.osc_client = SimpleUDPClient(osc_router_ip, osc_router_port)
+        self.visual_client = SimpleUDPClient(visual_app_ip, visual_app_port)
+        
+        # OSC設定を保存（表示用）
+        self.osc_router_info = f"{osc_router_ip}:{osc_router_port}"
+        self.visual_app_info = f"{visual_app_ip}:{visual_app_port}"
         
         # カメラ設定
+        self.camera_width = int(os.getenv("CAMERA_WIDTH", "1280"))
+        self.camera_height = int(os.getenv("CAMERA_HEIGHT", "720"))
+        
         self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_height)
         
         # FPS計算用
         self.fps = 0
@@ -67,17 +87,75 @@ class MultiModalTracker:
         self.start_time = time.time()
         
         print(f"MultiModal Tracker initialized")
+        print(f"Camera resolution: {self.camera_width}x{self.camera_height}")
         print("Sending OSC to:")
-        print("  - OSC Router: 127.0.0.1:8000") 
-        print("  - Visual App: 127.0.0.1:8003")
+        print(f"  - OSC Router: {osc_router_ip}:{osc_router_port}") 
+        print(f"  - Visual App: {visual_app_ip}:{visual_app_port}")
         
     def run(self):
-        try:
-            while True:
-                ret, frame = self.cap.read()
-                if not ret:
-                    continue
+        """メインループ - エラーハンドリング強化版"""
+        retry_count = 0
+        max_retries = 3
+        
+        while retry_count < max_retries:
+            try:
+                logging.info(f"Starting tracker (attempt {retry_count + 1}/{max_retries})")
+                self._main_loop()
+                break  # 正常終了の場合はループを抜ける
                 
+            except KeyboardInterrupt:
+                logging.info("User interrupted (Ctrl+C)")
+                break
+                
+            except Exception as e:
+                retry_count += 1
+                logging.error(f"Error occurred: {str(e)}")
+                logging.error(f"Traceback: {traceback.format_exc()}")
+                
+                if retry_count < max_retries:
+                    logging.info(f"Restarting in 3 seconds... (attempt {retry_count + 1}/{max_retries})")
+                    time.sleep(3)
+                    
+                    # リソースをクリーンアップして再初期化
+                    try:
+                        self.cleanup()
+                    except:
+                        pass
+                    
+                    # カメラを再初期化
+                    try:
+                        self.cap = cv2.VideoCapture(0)
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.camera_width)
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.camera_height)
+                        logging.info("Camera reinitialized")
+                    except Exception as camera_error:
+                        logging.error(f"Failed to reinitialize camera: {camera_error}")
+                else:
+                    logging.error(f"Max retries ({max_retries}) reached. Giving up.")
+                    
+        self.cleanup()
+    
+    def _main_loop(self):
+        """メインの処理ループ"""
+        consecutive_frame_failures = 0
+        max_frame_failures = 10
+        
+        while True:
+            ret, frame = self.cap.read()
+            if not ret:
+                consecutive_frame_failures += 1
+                logging.warning(f"Failed to read frame ({consecutive_frame_failures}/{max_frame_failures})")
+                
+                if consecutive_frame_failures >= max_frame_failures:
+                    raise RuntimeError("Too many consecutive frame read failures")
+                
+                time.sleep(0.1)  # 短時間待機してリトライ
+                continue
+            
+            # フレーム読み取り成功時はカウンターをリセット
+            consecutive_frame_failures = 0
+            
+            try:
                 # フレームを水平反転（鏡像表示）
                 frame = cv2.flip(frame, 1)
                 
@@ -104,13 +182,8 @@ class MultiModalTracker:
                 cv2.putText(annotated_frame, f"FPS: {self.fps:.1f}", 
                            (10, annotated_frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
-                # 機能状態表示
-                status_text = []
-                if self.enable_hands: status_text.append("HANDS")
-                if self.enable_face: status_text.append("FACE")
-                if self.enable_pose: status_text.append("POSE")
-                cv2.putText(annotated_frame, " | ".join(status_text), 
-                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                # コントロール情報表示
+                self.draw_control_info(annotated_frame)
                 
                 # 画面に表示
                 cv2.imshow('MultiModal Tracker', annotated_frame)
@@ -118,6 +191,7 @@ class MultiModalTracker:
                 # キー操作
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
+                    logging.info("User requested quit")
                     break
                 elif key == ord('h'):
                     self.toggle_hands()
@@ -126,10 +200,10 @@ class MultiModalTracker:
                 elif key == ord('p'):
                     self.toggle_pose()
                     
-        except KeyboardInterrupt:
-            print("\nStopping tracker...")
-        finally:
-            self.cleanup()
+            except Exception as frame_error:
+                logging.warning(f"Error processing frame: {frame_error}")
+                # フレーム処理エラーは致命的ではないので続行
+                continue
     
     def process_hands(self, rgb_frame, annotated_frame):
         results = self.hands.process(rgb_frame)
@@ -256,6 +330,61 @@ class MultiModalTracker:
             self.enable_pose = not self.enable_pose
             print(f"Pose tracking: {'ON' if self.enable_pose else 'OFF'}")
     
+    def draw_control_info(self, frame):
+        """コントロール情報と状態を画面に表示"""
+        height, width = frame.shape[:2]
+        
+        # パネルサイズを画面サイズに応じて調整
+        panel_width = min(320, width // 2)  # 最大320px、画面幅の半分まで
+        panel_height = min(240, height // 3)  # 最大240px、画面高さの1/3まで
+        
+        # 背景を暗くする領域（右上）
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (width-panel_width, 0), (width, panel_height), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        
+        # テキスト設定
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = min(0.5, width / 1280 * 0.5)  # 画面サイズに応じてフォントサイズ調整
+        thickness = 1
+        text_x = width - panel_width + 10  # パネル左端から10px
+        
+        # キーボードコントロール表示
+        y_offset = 20
+        cv2.putText(frame, "=== CONTROLS ===", (text_x, y_offset), font, font_scale * 1.2, (255, 255, 255), 2)
+        
+        y_offset += 25
+        controls = [
+            ("H: Hand Tracking", (0, 255, 0) if self.enable_hands else (100, 100, 100)),
+            ("F: Face Tracking", (0, 255, 0) if self.enable_face else (100, 100, 100)),
+            ("P: Pose Tracking", (0, 255, 0) if self.enable_pose else (100, 100, 100)),
+            ("Q: Quit", (255, 255, 255))
+        ]
+        
+        for control_text, color in controls:
+            cv2.putText(frame, control_text, (text_x, y_offset), font, font_scale, color, thickness)
+            y_offset += 20
+        
+        # OSC送信先情報
+        y_offset += 15
+        cv2.putText(frame, "=== OSC OUTPUT ===", (text_x, y_offset), font, font_scale * 1.2, (255, 255, 255), 2)
+        y_offset += 25
+        
+        cv2.putText(frame, f"Router: {self.osc_router_info}", (text_x, y_offset), font, font_scale, (0, 255, 255), thickness)
+        y_offset += 20
+        cv2.putText(frame, f"Visual: {self.visual_app_info}", (text_x, y_offset), font, font_scale, (0, 255, 255), thickness)
+        
+        # アクティブな機能の状態表示（左上）
+        status_text = []
+        if self.enable_hands: status_text.append("HANDS")
+        if self.enable_face: status_text.append("FACE")
+        if self.enable_pose: status_text.append("POSE")
+        
+        if status_text:
+            cv2.putText(frame, " | ".join(status_text), (10, 30), font, 0.7, (0, 255, 255), 2)
+        else:
+            cv2.putText(frame, "ALL DISABLED", (10, 30), font, 0.7, (0, 0, 255), 2)
+
     def cleanup(self):
         self.cap.release()
         cv2.destroyAllWindows()
