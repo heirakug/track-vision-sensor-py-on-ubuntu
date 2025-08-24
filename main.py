@@ -304,9 +304,18 @@ class MultiModalTracker:
                        (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
     
     def send_osc_data(self, address, data):
-        """OSCデータ送信"""
-        self.osc_client.send_message(address, data)
-        self.visual_client.send_message(address, data)
+        """OSCデータ送信 - 接続エラー時は無視"""
+        try:
+            self.osc_client.send_message(address, data)
+        except (OSError, ConnectionError) as e:
+            # OSCルーターへの接続エラーは無視（開発時など）
+            pass
+        
+        try:
+            self.visual_client.send_message(address, data)
+        except (OSError, ConnectionError) as e:
+            # Visual Appへの接続エラーは無視（開発時など）
+            pass
     
     def update_fps(self):
         """FPS計算"""
