@@ -1177,4 +1177,4 @@ numpy = ["NumPy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "952b74541f4f417b3b728cc57ffa5c7634afa1e74b44d0c9876cddcd306da612"
+content-hash = "7bf965acc0f76765d84cb3d74fa223e3cde219fcd8923f872f2d37d7591aa968"

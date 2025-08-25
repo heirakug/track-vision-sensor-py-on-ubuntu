@@ -7,6 +7,7 @@ import os
 import traceback
 import logging
 from dotenv import load_dotenv
+from gesture_recognizer import GestureRecognizer
 
 # .envファイルを読み込み
 load_dotenv()
@@ -37,6 +38,16 @@ class MultiModalTracker:
                 min_tracking_confidence=0.5
             )
             print("✓ Hand tracking enabled")
+            
+            # ジェスチャー認識システム初期化
+            try:
+                self.gesture_recognizer = GestureRecognizer()
+                print("✓ Gesture recognition enabled")
+            except Exception as e:
+                print(f"⚠ Gesture recognition disabled: {e}")
+                self.gesture_recognizer = None
+        else:
+            self.gesture_recognizer = None
         
         # 顔検出
         if self.enable_face:
@@ -203,6 +214,8 @@ class MultiModalTracker:
                     self.toggle_face()
                 elif key == ord('p'):
                     self.toggle_pose()
+                elif key == ord('g'):
+                    self.toggle_gesture_recognition()
                     
             except Exception as frame_error:
                 logging.warning(f"Error processing frame: {frame_error}")
@@ -233,6 +246,23 @@ class MultiModalTracker:
                 for landmark in hand_landmarks.landmark:
                     landmarks.extend([landmark.x, landmark.y])
                 self.send_osc_data("/hand/landmarks", landmarks)
+                
+                # ジェスチャー認識（最初の手のみ）
+                if hand_idx == 0 and self.gesture_recognizer:
+                    try:
+                        gesture_match = self.gesture_recognizer.recognize_gesture(landmarks)
+                        if gesture_match:
+                            # ジェスチャートリガー送信
+                            self.send_osc_data(gesture_match["trigger_data"], [1.0])
+                            self.send_osc_data("/gesture/recognized", [gesture_match["name"], gesture_match["similarity"]])
+                            
+                            # 画面に表示
+                            cv2.putText(annotated_frame, f"Gesture: {gesture_match['name']} ({gesture_match['similarity']:.2f})", 
+                                       (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                            
+                            print(f"✓ Gesture recognized: {gesture_match['name']} (similarity: {gesture_match['similarity']:.3f})")
+                    except Exception as e:
+                        logging.warning(f"Gesture recognition error: {e}")
                 
                 # 画面に座標表示
                 cv2.putText(annotated_frame, f"Hand {hand_idx}: ({x:.3f}, {y:.3f})", 
@@ -343,6 +373,16 @@ class MultiModalTracker:
             self.enable_pose = not self.enable_pose
             print(f"Pose tracking: {'ON' if self.enable_pose else 'OFF'}")
     
+    def toggle_gesture_recognition(self):
+        """ジェスチャー認識のON/OFF切り替え"""
+        if self.gesture_recognizer:
+            current_state = self.gesture_recognizer.settings["recognition_enabled"]
+            self.gesture_recognizer.update_settings(recognition_enabled=not current_state)
+            new_state = self.gesture_recognizer.settings["recognition_enabled"]
+            print(f"Gesture recognition: {'ON' if new_state else 'OFF'}")
+        else:
+            print("Gesture recognition: Not available")
+    
     def draw_control_info(self, frame):
         """コントロール情報と状態を画面に表示"""
         height, width = frame.shape[:2]
@@ -367,10 +407,16 @@ class MultiModalTracker:
         cv2.putText(frame, "=== CONTROLS ===", (text_x, y_offset), font, font_scale * 1.2, (255, 255, 255), 2)
         
         y_offset += 25
+        # ジェスチャー認識の状態を取得
+        gesture_enabled = False
+        if self.gesture_recognizer:
+            gesture_enabled = self.gesture_recognizer.settings["recognition_enabled"]
+        
         controls = [
             ("H: Hand Tracking", (0, 255, 0) if self.enable_hands else (100, 100, 100)),
             ("F: Face Tracking", (0, 255, 0) if self.enable_face else (100, 100, 100)),
             ("P: Pose Tracking", (0, 255, 0) if self.enable_pose else (100, 100, 100)),
+            ("G: Gesture Recognition", (0, 255, 255) if gesture_enabled else (100, 100, 100)),
             ("Q: Quit", (255, 255, 255))
         ]
         
@@ -438,6 +484,10 @@ if __name__ == "__main__":
     print("  H: Toggle hand tracking")
     print("  F: Toggle face tracking") 
     print("  P: Toggle pose tracking")
+    print("  G: Toggle gesture recognition")
+    print()
+    print("Gesture Manager:")
+    print("  Run 'python gesture_manager.py' to manage hand gestures")
     print()
     
     tracker = MultiModalTracker(
