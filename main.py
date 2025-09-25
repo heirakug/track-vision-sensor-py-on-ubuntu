@@ -267,9 +267,11 @@ class MultiModalTracker:
         # OpenCVウィンドウ設定（ヘッドレスモードでない場合）
         if not self.headless:
             cv2.namedWindow('MultiModal Tracker', cv2.WINDOW_NORMAL)
-            # 初期サイズは横向きで設定、回転時に動的調整
-            cv2.resizeWindow('MultiModal Tracker', 800, 480)
-            print(f"Display window size: 800x480 (rotation: {self.rotation * 90}°)")
+            # カメラ解像度に応じてウィンドウサイズを調整
+            display_width = max(640, self.camera_width * 2)  # 最小640px、カメラの2倍まで
+            display_height = max(480, self.camera_height * 2)  # 最小480px、カメラの2倍まで
+            cv2.resizeWindow('MultiModal Tracker', display_width, display_height)
+            print(f"Display window size: {display_width}x{display_height} (camera: {self.camera_width}x{self.camera_height})")
 
     def _init_camera(self):
         """カメラの初期化 - RpiCamera優先（安定性重視）"""
@@ -631,11 +633,14 @@ class MultiModalTracker:
                     # 回転適用（色調整はスキップ）
                     rotated_frame = self.apply_rotation(annotated_frame)
 
-                    # 回転に応じたウィンドウサイズでリサイズ
+                    # 回転に応じたウィンドウサイズでリサイズ（動的サイズ）
+                    display_width = max(640, self.camera_width * 2)
+                    display_height = max(480, self.camera_height * 2)
+
                     if self.rotation % 2 == 0:  # 0°または180°
-                        display_frame = self.resize_with_aspect_ratio(rotated_frame, 800, 480)
+                        display_frame = self.resize_with_aspect_ratio(rotated_frame, display_width, display_height)
                     else:  # 90°または270°
-                        display_frame = self.resize_with_aspect_ratio(rotated_frame, 480, 800)
+                        display_frame = self.resize_with_aspect_ratio(rotated_frame, display_height, display_width)
 
                     # 表示フレームの最終検証
                     if display_frame.max() == 0:
@@ -779,7 +784,7 @@ class MultiModalTracker:
             
             # 画面に表示 (HUDスタイル)
             cv2.putText(annotated_frame, "Pose: Detected",
-                       (10, 160), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 120, 0), 1)
+                       (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 120, 0), 2)
     
     def send_osc_data(self, address, data):
         """OSCデータ送信 - 接続エラー時は無視"""
@@ -837,12 +842,15 @@ class MultiModalTracker:
         rotation_names = ["通常", "90°左", "180°", "90°右"]
         print(f"Display rotation: {rotation_names[self.rotation]}")
 
-        # ウィンドウサイズを回転に合わせて調整
+        # ウィンドウサイズを回転に合わせて調整（動的サイズ）
         if not self.headless:
+            display_width = max(640, self.camera_width * 2)
+            display_height = max(480, self.camera_height * 2)
+
             if self.rotation % 2 == 0:  # 0°または180°
-                cv2.resizeWindow('MultiModal Tracker', 800, 480)
+                cv2.resizeWindow('MultiModal Tracker', display_width, display_height)
             else:  # 90°または270°
-                cv2.resizeWindow('MultiModal Tracker', 480, 800)
+                cv2.resizeWindow('MultiModal Tracker', display_height, display_width)
 
     def apply_rotation(self, frame):
         """フレームに回転を適用"""
@@ -862,16 +870,16 @@ class MultiModalTracker:
     def draw_control_info(self, frame):
         """コントロール情報と状態を画面に表示"""
         height, width = frame.shape[:2]
-        
+
         # パネルサイズを画面サイズに応じて調整
         panel_width = min(320, width // 2)  # 最大320px、画面幅の半分まで
         panel_height = min(240, height // 3)  # 最大240px、画面高さの1/3まで
-        
+
         # 背景を暗くする領域（右上）
         overlay = frame.copy()
         cv2.rectangle(overlay, (width-panel_width, 0), (width, panel_height), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-        
+
         # HUDスタイル フォント設定
         font = cv2.FONT_HERSHEY_DUPLEX  # より洗練されたフォント
         font_scale = min(0.5, width / 1280 * 0.5)  # 画面サイズに応じてフォントサイズ調整
@@ -890,13 +898,13 @@ class MultiModalTracker:
         # キーボードコントロール表示
         y_offset = 20
         cv2.putText(frame, "=== CONTROLS ===", (text_x, y_offset), font, font_scale * 1.1, hud_primary, thickness + 1)
-        
+
         y_offset += 25
         # ジェスチャー認識の状態を取得
         gesture_enabled = False
         if self.gesture_recognizer:
             gesture_enabled = self.gesture_recognizer.settings["recognition_enabled"]
-        
+
         rotation_names = ["通常", "90°左", "180°", "90°右"]
         controls = [
             ("H: Hand Tracking", hud_success if self.enable_hands else hud_inactive),
@@ -906,16 +914,16 @@ class MultiModalTracker:
             (f"R: Rotation ({rotation_names[self.rotation]})", hud_secondary),
             ("Q: Quit", hud_text)
         ]
-        
+
         for control_text, color in controls:
             cv2.putText(frame, control_text, (text_x, y_offset), font, font_scale, color, thickness)
             y_offset += 20
-        
+
         # OSC送信先情報
         y_offset += 15
         cv2.putText(frame, "=== OSC OUTPUT ===", (text_x, y_offset), font, font_scale * 1.1, hud_primary, thickness + 1)
         y_offset += 25
-        
+
         cv2.putText(frame, f"Router: {self.osc_router_info}", (text_x, y_offset), font, font_scale, hud_secondary, thickness)
         y_offset += 20
         cv2.putText(frame, f"Visual: {self.visual_app_info}", (text_x, y_offset), font, font_scale, hud_secondary, thickness)
@@ -925,11 +933,11 @@ class MultiModalTracker:
         if self.enable_hands: status_text.append("HANDS")
         if self.enable_face: status_text.append("FACE")
         if self.enable_pose: status_text.append("POSE")
-        
+
         if status_text:
-            cv2.putText(frame, " | ".join(status_text), (10, 30), font, 0.7, hud_primary, 2)
+            cv2.putText(frame, " | ".join(status_text), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, hud_primary, 2)
         else:
-            cv2.putText(frame, "ALL DISABLED", (10, 30), font, 0.7, hud_warning, 2)
+            cv2.putText(frame, "ALL DISABLED", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, hud_warning, 2)
 
     def resize_with_aspect_ratio(self, frame, target_width, target_height):
         """アスペクト比を保持してリサイズ（レターボックス方式）"""
