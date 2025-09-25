@@ -3,11 +3,26 @@
 ## 概要
 MediaPipeを使用したリアルタイム・マルチモーダル検出システム。手、顔、ポーズを個別または組み合わせて検出し、OSC経由でデータを送信する。
 
+**Ubuntu/Raspberry Pi最適化プロジェクト** - Raspberry Pi CSIカメラ（rpicam-apps/libcamera）とUbuntu環境に特化した設計。
+
+## プラットフォーム仕様
+
+### 対応環境
+- **OS**: Ubuntu 20.04+ / Raspberry Pi OS
+- **ハードウェア**: Raspberry Pi 4/5 + CSI Camera (IMX219等)
+- **カメラシステム**: rpicam-apps (libcamera) 優先、V4L2フォールバック
+
+### カメラアーキテクチャ
+1. **RpiCameraVideo** (rpicam-vid): 高速ストリーミング - 最優先
+2. **RpiCamera Streaming** (libcamera): 標準ストリーミング
+3. **RpiCamera Standard**: 通常モード
+4. **OpenCV VideoCapture**: V4L2フォールバック
+
 ## 主要機能
 
 ### 検出モード
 - **手検出 (Hand Tracking)**: MediaPipe Hands - 21ランドマーク
-- **顔検出 (Face Tracking)**: MediaPipe Face Mesh - 468ランドマーク 
+- **顔検出 (Face Tracking)**: MediaPipe Face Mesh - 468ランドマーク
 - **ポーズ検出 (Pose Tracking)**: MediaPipe Pose - 33ランドマーク
 
 ### 機能選択
@@ -80,20 +95,28 @@ python = "^3.12"
 mediapipe = "^0.10.0"
 opencv-python = "^4.8.0"
 python-osc = "^1.9.3"
+python-dotenv = "^1.0.0"
 ```
 
-### 性能
-- **FPS**: 30fps目標
+### 性能設定
+- **FPS**: 30fps目標（軽量設定で最適化）
 - **遅延**: 1-5ms (ローカルOSC通信)
-- **解像度**: 640x480 (カメラ入力)
+- **解像度**: 160x120 (超軽量) / 640x480 (標準) - 環境変数で設定可能
+- **処理**: CPU最適化（GPU delegate無効でRaspberry Pi安定化）
 
 ### アーキテクチャ
 ```
 MultiModalTracker
-├── process_hands()    # 手検出処理
-├── process_face()     # 顔検出処理  
-├── process_pose()     # ポーズ検出処理
-└── send_osc_data()    # OSC送信処理
+├── _init_camera()           # カメラ初期化（rpicam優先）
+│   ├── RpiCameraVideo      # rpicam-vid高速ストリーミング
+│   ├── RpiCamera           # libcamera標準/ストリーミング
+│   └── OpenCV VideoCapture # V4L2フォールバック
+├── ThreadedFrameReader     # 非同期フレーム読み込み
+├── process_hands()         # 手検出処理（MediaPipe Hands）
+├── process_face()          # 顔検出処理（MediaPipe Face Mesh）
+├── process_pose()          # ポーズ検出処理（MediaPipe Pose）
+├── send_osc_data()         # OSC送信処理
+└── gesture_recognizer      # ジェスチャー認識システム
 ```
 
 ## 連携システム
@@ -122,19 +145,32 @@ MultiModalTracker
 
 ## トラブルシューティング
 
-### よくある問題
+### カメラ関連問題
 1. **カメラが開けない**
+   - `rpicam-hello --list-cameras` でカメラ認識を確認
    - 他のアプリケーションがカメラを使用していないか確認
-   - カメラのアクセス許可を確認
+   - libcameraサービス状態を確認
 
-2. **MediaPipeエラー**
-   - 依存関係を再インストール: `poetry install`
-   - Python 3.12互換性を確認
+2. **緑色の画面・色が変**
+   - rpicam系からV4L2への自動フォールバック動作
+   - 環境変数でカメラ設定を調整: CAMERA_WIDTH, CAMERA_HEIGHT
+   - AWB（Auto White Balance）設定の問題
 
-3. **OSC送信エラー**
-   - ネットワーク設定を確認
-   - ファイアウォール設定を確認
+3. **低FPS・処理遅延**
+   - 解像度を下げる: 160x120推奨（超軽量モード）
+   - MediaPipe設定を軽量化済み（model_complexity=0）
+   - GPU delegate無効化でRaspberry Pi安定性向上
 
-### デバッグ
-- コンソール出力でFPSと検出状態を確認
-- OpenCVウィンドウで視覚的な検出結果を確認
+### MediaPipeエラー
+- 依存関係再インストール: `poetry install`
+- TensorFlowログレベル設定済み（警告抑制）
+
+### OSC通信エラー
+- 接続エラーは無視される設計（開発時対応）
+- ルーター: 127.0.0.1:8000, Visual App: 127.0.0.1:8003
+
+### デバッグツール
+- `test_camera.py`: 基本カメラテスト
+- `test_hand_tracking.py`: ハンドトラッキングテスト
+- `test_rpicam_mediapipe.py`: RpiCam+MediaPipe統合テスト
+- ログ出力: 詳細なパフォーマンス統計とエラー情報

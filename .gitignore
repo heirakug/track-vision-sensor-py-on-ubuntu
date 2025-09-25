@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Poetry
+# Uncomment if you want to include poetry.lock
+# poetry.lock
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific - Test outputs and temporary files
+camera_test_output/
+*.jpg
+*.mp4
+*.avi
+*.log
+*.tmp
+*.temp
+
+# Backup files
+*_backup_*/
+pi5_backup_*/
+
+# Test and debug files (development artifacts) - keep essential test files
+debug_*.py
+analyze_*.py
+performance_*.py
+project_analysis.py
+optimize_*.py
+minimal_test.py
+simple_test.py
+
+# Keep essential test files
+!test_camera.py
+!test_hand_tracking.py
+!test_libcamera.py
+!test_camera_simple.py
+!test_rpicam_mediapipe.py
+
+# System files
+packages.microsoft.gpg
+
+# Temporary scripts
+create_pi5_backup.sh
+v4l2_vs_rpicam_analysis.md
+
+# Core project files to keep:
+# - main.py
+# - rpicamera.py
+# - rpicam_video.py
+# - gesture_recognizer.py
+# - gesture_manager.py
+# - run_tracker.sh
+# - pyproject.toml
+# - poetry.lock
+# - README*.md
+# - CLAUDE.md
+# - Essential test files (see exceptions above)

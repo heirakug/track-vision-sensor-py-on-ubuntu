@@ -82,14 +82,19 @@ sudo systemctl restart tracker.service
 ### よくある問題
 
 **1. カメラが開けない**
+- `rpicam-hello --list-cameras` でCSIカメラを確認
 - 他のアプリケーションがカメラを使用していないか確認
-- USBカメラの接続を確認
+- libcameraサービスの状態を確認
 
-**2. OSC接続エラー**  
+**2. 画面が緑色・色が変**
+- rpicam系からV4L2への自動フォールバック中
+- 解像度設定を160x120に下げる（軽量モード）
+
+**3. OSC接続エラー**
 - `.env`ファイルのIPアドレス設定を確認
 - ネットワーク接続を確認
 
-**3. 権限エラー**
+**4. 権限エラー**
 - スクリプトに実行権限があるか確認: `chmod +x run_tracker.sh`
 
 ### ログの意味
@@ -118,12 +123,15 @@ Max restart attempts reached. Giving up.
 
 ### .env設定例
 ```bash
+# OSC送信先
 OSC_ROUTER_IP=192.168.1.100
 OSC_ROUTER_PORT=8000
 VISUAL_APP_IP=127.0.0.1
 VISUAL_APP_PORT=8003
-CAMERA_WIDTH=1280
-CAMERA_HEIGHT=720
+
+# カメラ設定（Raspberry Pi推奨）
+CAMERA_WIDTH=160        # 超軽量モード（推奨）
+CAMERA_HEIGHT=120       # 標準: 640x480
 ```
 
 これで、素人ユーザーでも安心してシステムを運用できます！
