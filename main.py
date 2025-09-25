@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from gesture_recognizer import GestureRecognizer
 from rpicamera import create_camera
 from rpicam_video import create_video_camera
+from PIL import Image, ImageDraw, ImageFont
 
 # .envファイルを読み込み
 load_dotenv()
@@ -214,6 +215,9 @@ class MultiModalTracker:
         # OSC設定を保存（表示用）
         self.osc_router_info = f"{osc_router_ip}:{osc_router_port}"
         self.visual_app_info = f"{visual_app_ip}:{visual_app_port}"
+
+        # Pillowフォント設定
+        self._init_fonts()
         
         # カメラ設定 - パフォーマンス重視で極小解像度
         self.camera_width = int(os.getenv("CAMERA_WIDTH", "160"))
@@ -620,9 +624,9 @@ class MultiModalTracker:
 
                 cv2.putText(annotated_frame, f"FPS: {self.fps:.1f}",
                            (10, annotated_frame.shape[0] - 20), cv2.FONT_HERSHEY_DUPLEX, 0.6, hud_fps_color, 2)
-                
-                # コントロール情報表示
-                self.draw_control_info(annotated_frame)
+
+                # Pillowベースのユーザー欄オーバーレイを適用（フレームレートテスト用に一時無効化）
+                # annotated_frame = self.apply_gui_overlay(annotated_frame)
                 
                 # 画面に表示（ヘッドレスモードでない場合のみ）
                 if not self.headless:
@@ -867,77 +871,6 @@ class MultiModalTracker:
 
     # 色調整関連関数を削除 - 素のカメラ映像を使用
     
-    def draw_control_info(self, frame):
-        """コントロール情報と状態を画面に表示"""
-        height, width = frame.shape[:2]
-
-        # パネルサイズを画面サイズに応じて調整
-        panel_width = min(320, width // 2)  # 最大320px、画面幅の半分まで
-        panel_height = min(240, height // 3)  # 最大240px、画面高さの1/3まで
-
-        # 背景を暗くする領域（右上）
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (width-panel_width, 0), (width, panel_height), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-
-        # HUDスタイル フォント設定
-        font = cv2.FONT_HERSHEY_DUPLEX  # より洗練されたフォント
-        font_scale = min(0.5, width / 1280 * 0.5)  # 画面サイズに応じてフォントサイズ調整
-        thickness = 1
-
-        # HUDカラーパレット
-        hud_primary = (0, 255, 255)     # シアン (メイン)
-        hud_secondary = (0, 200, 255)   # ライトブルー (セカンダリ)
-        hud_accent = (255, 120, 0)      # オレンジ (アクセント)
-        hud_success = (0, 255, 100)     # グリーン (成功)
-        hud_warning = (255, 200, 0)     # イエロー (警告)
-        hud_inactive = (80, 80, 80)     # グレー (無効)
-        hud_text = (220, 220, 220)      # ライトグレー (テキスト)
-        text_x = width - panel_width + 10  # パネル左端から10px
-        
-        # キーボードコントロール表示
-        y_offset = 20
-        cv2.putText(frame, "=== CONTROLS ===", (text_x, y_offset), font, font_scale * 1.1, hud_primary, thickness + 1)
-
-        y_offset += 25
-        # ジェスチャー認識の状態を取得
-        gesture_enabled = False
-        if self.gesture_recognizer:
-            gesture_enabled = self.gesture_recognizer.settings["recognition_enabled"]
-
-        rotation_names = ["通常", "90°左", "180°", "90°右"]
-        controls = [
-            ("H: Hand Tracking", hud_success if self.enable_hands else hud_inactive),
-            ("F: Face Tracking", hud_success if self.enable_face else hud_inactive),
-            ("P: Pose Tracking", hud_success if self.enable_pose else hud_inactive),
-            ("G: Gesture Recognition", hud_accent if gesture_enabled else hud_inactive),
-            (f"R: Rotation ({rotation_names[self.rotation]})", hud_secondary),
-            ("Q: Quit", hud_text)
-        ]
-
-        for control_text, color in controls:
-            cv2.putText(frame, control_text, (text_x, y_offset), font, font_scale, color, thickness)
-            y_offset += 20
-
-        # OSC送信先情報
-        y_offset += 15
-        cv2.putText(frame, "=== OSC OUTPUT ===", (text_x, y_offset), font, font_scale * 1.1, hud_primary, thickness + 1)
-        y_offset += 25
-
-        cv2.putText(frame, f"Router: {self.osc_router_info}", (text_x, y_offset), font, font_scale, hud_secondary, thickness)
-        y_offset += 20
-        cv2.putText(frame, f"Visual: {self.visual_app_info}", (text_x, y_offset), font, font_scale, hud_secondary, thickness)
-        
-        # アクティブな機能の状態表示（左上）
-        status_text = []
-        if self.enable_hands: status_text.append("HANDS")
-        if self.enable_face: status_text.append("FACE")
-        if self.enable_pose: status_text.append("POSE")
-
-        if status_text:
-            cv2.putText(frame, " | ".join(status_text), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, hud_primary, 2)
-        else:
-            cv2.putText(frame, "ALL DISABLED", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, hud_warning, 2)
 
     def resize_with_aspect_ratio(self, frame, target_width, target_height):
         """アスペクト比を保持してリサイズ（レターボックス方式）"""
@@ -1022,6 +955,119 @@ class MultiModalTracker:
             logging.warning(f"Window cleanup error: {e}")
 
         print("MultiModal tracker stopped")
+
+    def _init_fonts(self):
+        """Pillowフォントの初期化"""
+        try:
+            font_path = 'fonts/static/Roboto-Regular.ttf'
+            if os.path.exists(font_path):
+                self.font_small = ImageFont.truetype(font_path, 14)
+                self.font_medium = ImageFont.truetype(font_path, 16)
+                self.font_large = ImageFont.truetype(font_path, 20)
+                print("✓ Roboto Regular font loaded successfully")
+            else:
+                raise FileNotFoundError("Roboto font not found")
+        except Exception as e:
+            print(f"⚠ Using default font: {e}")
+            self.font_small = ImageFont.load_default()
+            self.font_medium = ImageFont.load_default()
+            self.font_large = ImageFont.load_default()
+
+    def create_gui_overlay(self, frame_width, frame_height):
+        """GUIオーバーレイをPillowで作成"""
+        # 透明な画像を作成
+        overlay = Image.new('RGBA', (frame_width, frame_height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        # カラーパレット
+        primary_color = (0, 255, 255, 200)     # シアン
+        success_color = (0, 255, 100, 200)     # グリーン
+        warning_color = (255, 200, 0, 200)     # イエロー
+        inactive_color = (80, 80, 80, 200)     # グレー
+        background_color = (0, 0, 0, 140)      # 半透明背景
+
+        # コントロールパネル背景
+        panel_width = min(320, frame_width // 2)
+        panel_height = min(240, frame_height // 3)
+        panel_x = frame_width - panel_width
+
+        draw.rectangle([panel_x, 0, frame_width, panel_height], fill=background_color)
+
+        # タイトル
+        title_y = 10
+        draw.text((panel_x + 10, title_y), "=== CONTROLS ===",
+                 font=self.font_medium, fill=primary_color)
+
+        # コントロール情報
+        y_offset = title_y + 30
+        line_height = 22
+
+        # ジェスチャー認識の状態を取得
+        gesture_enabled = False
+        if self.gesture_recognizer:
+            gesture_enabled = self.gesture_recognizer.settings["recognition_enabled"]
+
+        rotation_names = ["通常", "90°左", "180°", "90°右"]
+        controls = [
+            ("H: Hand Tracking", success_color if self.enable_hands else inactive_color),
+            ("F: Face Tracking", success_color if self.enable_face else inactive_color),
+            ("P: Pose Tracking", success_color if self.enable_pose else inactive_color),
+            ("G: Gesture Recognition", warning_color if gesture_enabled else inactive_color),
+            (f"R: Rotation ({rotation_names[self.rotation]})", primary_color),
+            ("Q: Quit", (220, 220, 220, 200))
+        ]
+
+        for control_text, color in controls:
+            draw.text((panel_x + 10, y_offset), control_text,
+                     font=self.font_small, fill=color)
+            y_offset += line_height
+
+        # OSC情報
+        y_offset += 20
+        draw.text((panel_x + 10, y_offset), "=== OSC OUTPUT ===",
+                 font=self.font_medium, fill=primary_color)
+        y_offset += 30
+
+        draw.text((panel_x + 10, y_offset), f"Router: {self.osc_router_info}",
+                 font=self.font_small, fill=primary_color)
+        y_offset += line_height
+        draw.text((panel_x + 10, y_offset), f"Visual: {self.visual_app_info}",
+                 font=self.font_small, fill=primary_color)
+
+        # アクティブ機能表示（左上）
+        status_text = []
+        if self.enable_hands: status_text.append("HANDS")
+        if self.enable_face: status_text.append("FACE")
+        if self.enable_pose: status_text.append("POSE")
+
+        if status_text:
+            status_display = " | ".join(status_text)
+            draw.text((10, 10), status_display, font=self.font_large, fill=primary_color)
+        else:
+            draw.text((10, 10), "ALL DISABLED", font=self.font_large, fill=warning_color)
+
+        return overlay
+
+    def apply_gui_overlay(self, cv_frame):
+        """OpenCVフレームにPillowオーバーレイを適用"""
+        try:
+            # OpenCVフレームをPILに変換
+            pil_frame = Image.fromarray(cv2.cvtColor(cv_frame, cv2.COLOR_BGR2RGB))
+
+            # GUIオーバーレイを作成
+            overlay = self.create_gui_overlay(pil_frame.width, pil_frame.height)
+
+            # オーバーレイを合成
+            combined = Image.alpha_composite(
+                pil_frame.convert('RGBA'), overlay
+            ).convert('RGB')
+
+            # OpenCVフレームに戻す
+            return cv2.cvtColor(np.array(combined), cv2.COLOR_RGB2BGR)
+
+        except Exception as e:
+            logging.warning(f"GUI overlay error: {e}")
+            return cv_frame
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='MultiModal Tracker with MediaPipe')
